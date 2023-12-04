@@ -197,9 +197,9 @@ mod test {
         ($name:ident, $input:literal, $a:literal, $b:literal) => {
             #[test]
             fn $name() {
-                let first = first_digit($input).expect("no number #1");
+                let first = first_digit(&ltr(), $input).expect("no number #1");
                 assert_eq!(first, $a, "#1");
-                let last = last_digit($input).expect("no number #2");
+                let last = last_digit(&rtl(), $input).expect("no number #2");
                 assert_eq!(last, $b, "#2");
             }
         };
@@ -207,14 +207,14 @@ mod test {
             #[test]
             #[should_panic]
             fn $name() {
-                let _ = first_digit($input).expect("no number #1");
+                let _ = first_digit(&ltr(), $input).expect("no number #1");
             }
         };
         (bad last -> $name:ident, $input:literal) => {
             #[test]
             #[should_panic]
             fn $name() {
-                let _ = last_digit($input).expect("no number #1");
+                let _ = last_digit(&rtl(), $input).expect("no number #1");
             }
         }
     }
@@ -235,7 +235,7 @@ mod test {
     test_a_b!(rand_7, "9ninefivevnbrrfrfjfivetwo", 9, 2);
     test_a_b!(rand_8, "fzgnjsz2nine9", 2, 9);
     test_a_b!(rand_9, "z39hpppnncfivenbkc", 3, 5);
-    test_a_b!(rand_10, "twoeightsix5zmdmcxcfdnrnjjsixmfqpvndkctzdv", 2, 5);
+    test_a_b!(rand_10, "twoeightsix5zmdmcxcfdnrnjjsixmfqpvndkctzdv", 2, 6);
     test_a_b!(rand_11, "drsgdrrgscqmsggrgq1fsqjhtkkrltt", 1, 1);
     test_a_b!(rand_12, "twoeightsix5zmdmcxcfdnrnjjsixmfqpvndkctzdv", 2, 6);
     test_a_b!(rand_13, "8zvbnthreenvplvljj", 8, 3);
@@ -245,10 +245,13 @@ mod test {
         let content = include_str!("./sample.txt");
 
         let mut result = 0;
+
+        let ltr = ltr();
+        let rtl = rtl();
     
         for line in content.lines() {
-            let first = first_digit(line).expect("no number");
-            let last = last_digit(line).expect("no number");
+            let first = first_digit(&ltr, line).expect("no number");
+            let last = last_digit(&rtl, line).expect("no number");
     
             result += dbg!(first * 10 + last);
         }
@@ -257,12 +260,12 @@ mod test {
     }
 }
 
-fn first_digit(line: &str) -> Option<u32> {
-    begin_digit(&ltr(), line, false)
+fn first_digit(trie: &Trie, line: &str) -> Option<u32> {
+    begin_digit(trie, line, false)
 }
 
-fn last_digit(line: &str) -> Option<u32> {
-    begin_digit(&rtl(), line, true)
+fn last_digit(trie: &Trie, line: &str) -> Option<u32> {
+    begin_digit(trie, line, true)
 }
 
 fn ltr() -> Trie {
@@ -282,9 +285,12 @@ fn main() {
 
     let mut result = 0;
 
+    let ltr = ltr();
+    let rtl = rtl();
+
     for line in content.lines() {
-        let first = first_digit(line).expect("no number #1");
-        let last = last_digit(line).expect("no number #2");
+        let first = first_digit(&ltr, line).expect("no number #1");
+        let last = last_digit(&rtl, line).expect("no number #2");
 
         result += first * 10 + last;
     }
