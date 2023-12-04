@@ -1,2 +1,6 @@
 **/target
 **/*.txt
+**/*.exe
+**/*.o
+**/bin
+**/obj

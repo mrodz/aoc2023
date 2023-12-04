@@ -1,0 +1,6 @@
+{
+	"files.associations": {
+		"stdint.h": "c",
+		"game_reader.h": "c"
+	}
+}
