@@ -36,7 +36,11 @@ typedef struct _parser_state {
 	game_reader_settings * settings;
 } parser_state;
 
-
+typedef struct _lines_reader {
+	parser_state * backing;
+	size_t index;
+	uint8_t done;
+} lines_reader;
 
 game_reader_result_t games_from_path(game * dst, size_t len, char *const path, game_reader_settings * o);
 game_reader_result_t io_read_in(FILE ** fp, char *const path);

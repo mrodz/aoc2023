@@ -79,7 +79,7 @@ game_reader_result_t io_read_in(FILE **fp, char *const path)
 	{
 		int ferr = errno;
 		char emsg[1024] = {0};
-		if (sprintf_s(emsg, sizeof(emsg), "Could not open game at \"%s\"", path) == -1)
+		if (snprintf(emsg, sizeof(emsg), "Could not open game at \"%s\"", path) == -1)
 		{
 			perror("Could not format error message");
 			fprintf(stderr, "\t^ Original error: %s", strerror(ferr));
@@ -108,6 +108,9 @@ game_reader_result_t parser_alloc_block(parser_state *parser)
 {
 	char *new_block;
 
+	if (parser->settings->verbose)
+		printf("alloc <init> (start = %p, len = %lu)\n", parser->buffer, parser->capacity + PARSER_BLOCK_SIZE);
+
 	if ((new_block = realloc(parser->buffer, parser->capacity + PARSER_BLOCK_SIZE)) == NULL)
 	{
 		perror("Could not allocate memory for parser");
@@ -115,7 +118,14 @@ game_reader_result_t parser_alloc_block(parser_state *parser)
 	}
 
 	parser->buffer = new_block;
+	
+	char * c = &parser->buffer[parser->capacity - 1];
+
 	parser->capacity += PARSER_BLOCK_SIZE;
+
+	while (c++ < &parser->buffer[parser->capacity - 1]) {
+		*c = 0;
+	}
 
 	return OK;
 }
@@ -149,48 +159,26 @@ game_reader_result_t parser_seek_line(parser_state *parser)
 		{
 			if (ferror(parser->fp))
 			{
-				perror("fread_s could not get content");
+				perror("fread could not get content");
 				return IO_ERROR;
 			}
 
 			if (feof(parser->fp))
-				return OK;
+				break;
 		}
 
 		if (parser->settings->verbose)
-			printf("\tRaw Read: \"%s\"\n", parser->buffer);
+			printf("\tBuffer is: \"%s\"\n", parser->buffer);
 
 		parser->length += bytes_read;
 
-		int32_t newline_pos = -1;
-
-		for (size_t i = 0; i < parser->length; i++)
-		{
-			if (parser->buffer[i] == '\n')
-			{
-				newline_pos = i;
-				break;
+		if (parser_bytes_free(parser) == 0) {
+			game_reader_result_t res;
+			if ((res = parser_alloc_block(parser)) != OK) {
+				if (parser->settings->verbose)
+					fprintf(stderr, "failed to resize buffer");
+				return res;
 			}
-		}
-
-		if (parser->settings->verbose)
-			printf("\tnewline_pos = %d\n", newline_pos);
-
-		if (newline_pos > 0)
-		{
-			size_t exclude_start = newline_pos;
-			size_t exclude_n = parser->length - exclude_start;
-			memset(&parser->buffer[exclude_start], '\0', exclude_n);
-			parser->length = exclude_start;
-			fseek(parser->fp, -exclude_n + 1, SEEK_CUR);
-			break;
-		}
-		else
-		{
-			if (parser->settings->verbose)
-				printf("\t\t@@ ALLOC @@\n");
-
-			parser_alloc_block(parser);
 		}
 
 		// size_t can_read = parser_bytes_free(parser);
