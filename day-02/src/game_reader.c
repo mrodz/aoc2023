@@ -21,8 +21,20 @@ char *const str_game_reader_result(game_reader_result_t result)
 	}
 }
 
-game_reader_result_t games_from_path(game *dst, size_t len, char *const path)
+game_reader_result_t games_from_path(game *dst, size_t len, char *const path, game_reader_settings *o)
 {
+	uint8_t free_later = 0;
+
+	if (o == NULL)
+	{
+		o = (game_reader_settings *)malloc(sizeof(game_reader_settings));
+
+		o->verbose = 0;
+		o->width_of_newline = 1;
+
+		free_later = 1;
+	}
+
 	FILE *file;
 
 	game_reader_result_t err;
@@ -30,24 +42,22 @@ game_reader_result_t games_from_path(game *dst, size_t len, char *const path)
 	if ((err = io_read_in(&file, path)) != OK)
 		goto defer;
 
-	parser_state p = parser(file);
+	parser_state p = parser(file, o);
 
 	for (size_t i = 0; i < len; i++)
 	{
 		if ((err = parser_seek_line(&p)) != OK)
 			goto defer;
 
-		// game *current = &dst[i];
-
-		// if ((err = next_game(current, &p)) != OK)
-		// 	goto defer;
-
 		printf("[%lu] `%s`\n", (long unsigned int)i, p.buffer);
 	}
 
-	return OK;
+	err = OK;
 
 defer:
+	if (free_later)
+		free(o);
+
 	if (file != NULL)
 	{
 		if (fclose(file) != 0)
@@ -55,7 +65,8 @@ defer:
 		file = NULL;
 	}
 
-	fprintf(stderr, "error %d: %s", err, str_game_reader_result(err));
+	if (err != OK)
+		fprintf(stderr, "error %d: %s", err, str_game_reader_result(err));
 
 	return err;
 }
@@ -82,13 +93,14 @@ game_reader_result_t io_read_in(FILE **fp, char *const path)
 	return OK;
 }
 
-parser_state parser(FILE *fp)
+parser_state parser(FILE *fp, game_reader_settings *o)
 {
 	parser_state result;
 	result.buffer = NULL;
 	result.fp = fp;
 	result.length = 0;
 	result.capacity = 0;
+	result.settings = o;
 	return result;
 }
 
@@ -129,83 +141,141 @@ game_reader_result_t parser_seek_line(parser_state *parser)
 	while (1)
 	{
 		size_t can_read = parser_bytes_free(parser);
+		char *free_region = get_free_region(parser);
 
-		if (can_read != 0)
+		size_t bytes_read;
+
+		if ((bytes_read = fread(free_region, sizeof(char), can_read, parser->fp)) == 0)
 		{
-
-			size_t bytes_read;
-
-			char * free_region = get_free_region(parser);
-
-			if ((bytes_read = fread(free_region, sizeof(char), can_read, parser->fp)) == 0)
+			if (ferror(parser->fp))
 			{
-				if (feof(parser->fp))
-				{
-					size_t chars_deleted = ltrim_newline(parser);
-
-					if (chars_deleted == 0) {
-						return OK;
-					}
-
-				}
-
-				if (ferror(parser->fp))
-				{
-					perror("fread_s could not get content");
-					return IO_ERROR;
-				}
+				perror("fread_s could not get content");
+				return IO_ERROR;
 			}
 
+			if (feof(parser->fp))
+				return OK;
+		}
+
+		if (parser->settings->verbose)
 			printf("\tRaw Read: \"%s\"\n", parser->buffer);
 
-			parser->length += bytes_read;
+		parser->length += bytes_read;
 
-			// int newline = 0;
+		int32_t newline_pos = -1;
 
-			if (parser->buffer[parser->length - 1] == '\n') {
+		for (size_t i = 0; i < parser->length; i++)
+		{
+			if (parser->buffer[i] == '\n')
+			{
+				newline_pos = i;
 				break;
 			}
-
-			// if (parser->buffer[parser->length - 1] != '\0') {
-			// 	parser->buffer[parser->length - 1] = '\0';
-			// 	parser->length -= 1;
-			// 	fseek(parser->fp, -1, SEEK_CUR);
-			// }
-
-			size_t chars_deleted = ltrim_newline(parser);
-
-			parser->length -= chars_deleted;
-
-			printf("\tdel = %lu & last = %c\n", (long unsigned int)chars_deleted, parser->buffer[parser->length - 1]);
-
-			fseek(parser->fp, -(int)chars_deleted, SEEK_CUR);
-
-			if (chars_deleted != 0 )
-			{
-				break;
-			} /*else {
-			}*/
 		}
-		// printf("\tAlloc!!!!\n");
-		parser_alloc_block(parser);
+
+		if (parser->settings->verbose)
+			printf("\tnewline_pos = %d\n", newline_pos);
+
+		if (newline_pos > 0)
+		{
+			size_t exclude_start = newline_pos;
+			size_t exclude_n = parser->length - exclude_start;
+			memset(&parser->buffer[exclude_start], '\0', exclude_n);
+			parser->length = exclude_start;
+			fseek(parser->fp, -exclude_n + 1, SEEK_CUR);
+			break;
+		}
+		else
+		{
+			if (parser->settings->verbose)
+				printf("\t\t@@ ALLOC @@\n");
+
+			parser_alloc_block(parser);
+		}
+
+		// size_t can_read = parser_bytes_free(parser);
+
+		// if (can_read != 0)
+		// {
+
+		// 	size_t bytes_read;
+
+		// 	char *free_region = get_free_region(parser);
+
+		// 	if ((bytes_read = fread(free_region, sizeof(char), can_read, parser->fp)) == 0)
+		// 	{
+		// 		if (feof(parser->fp))
+		// 		{
+		// 			size_t chars_deleted = ltrim_newline(parser);
+
+		// 			if (chars_deleted == 0)
+		// 			{
+
+		// 				return OK;
+		// 			}
+		// 		}
+
+		// 		if (ferror(parser->fp))
+		// 		{
+		// 			perror("fread_s could not get content");
+		// 			return IO_ERROR;
+		// 		}
+		// 	}
+
+		// 	printf("\tRaw Read: \"%s\"\n", parser->buffer);
+
+		// 	parser->length += bytes_read;
+
+		// 	// int newline = 0;
+
+		// 	if (parser->buffer[parser->length - 1] == '\n')
+		// 	{
+		// 		break;
+		// 	}
+
+		// 	// if (parser->buffer[parser->length - 1] != '\0') {
+		// 	// 	parser->buffer[parser->length - 1] = '\0';
+		// 	// 	parser->length -= 1;
+		// 	// 	fseek(parser->fp, -1, SEEK_CUR);
+		// 	// }
+
+		// 	size_t chars_deleted = ltrim_newline(parser);
+
+		// 	parser->length -= chars_deleted;
+
+		// 	printf("\tdel = %lu & last = %c\n", (long unsigned int)chars_deleted, parser->buffer[parser->length - 1]);
+
+		// 	fseek(parser->fp, -(int)chars_deleted, SEEK_CUR);
+
+		// 	if (chars_deleted != 0)
+		// 	{
+		// 		break;
+		// 	} /*else {
+		// 	}*/
+		// }
+		// // printf("\tAlloc!!!!\n");
+		// parser_alloc_block(parser);
 	}
 
 	return OK;
 }
 
-size_t ltrim_newline(parser_state * parser) {
+size_t ltrim_newline(parser_state *parser)
+{
 	size_t i = 0;
 
-		printf("\t\tparser.length = %lu\n", (long unsigned int)parser->length);
+	printf("\t\tparser.length = %lu\n", (long unsigned int)parser->length);
 
 	if (parser->length < 1)
 		return 0;
 
-	for (i = 0; i < parser->length && parser->buffer[i] != '\n'; i++);
+	for (i = 0; i < parser->length && parser->buffer[i] != '\n'; i++)
+		;
 
-	if (i != 0) {
+	if (i != 0)
+	{
 		memset(&parser->buffer[i], 0, parser->length - i);
-		printf("\t\ti = %lu\n",  (long unsigned int)i);
+		printf("\t\ti = %lu\n", (long unsigned int)i);
 		return parser->length - i;
 	}
 
@@ -214,5 +284,5 @@ size_t ltrim_newline(parser_state * parser) {
 
 game_reader_result_t next_game(game *dst, parser_state *parser)
 {
-	return (game_reader_result_t) {0};
+	return (game_reader_result_t){0};
 }
