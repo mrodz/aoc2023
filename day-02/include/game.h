@@ -32,6 +32,7 @@ extern "C"
 	int game_is_valid(const game *game, int r, int g, int b);
 	int gamestr(const game *game, char *dst, size_t dst_len);
 	int game_cleanup(const game *game);
+	void game_maxes(const game *game, int *r, int *g, int *b);
 
 #ifdef __cplusplus
 }

@@ -38,6 +38,40 @@ int game_is_valid(const game *game, int r, int g, int b)
 	return 1;
 }
 
+void game_maxes(const game *game, int *r, int *g, int *b) {
+	int rsum = 0, gsum = 0, bsum = 0;
+	int rmax = 0, gmax = 0, bmax = 0;
+
+	for (game_node *node = game->start; node != NULL; node = node->next)
+	{
+		switch (node->color)
+		{
+		case RED:
+			rsum += node->count;
+			break;
+		case GREEN:
+			gsum += node->count;
+			break;
+		case BLUE:
+			bsum += node->count;
+			break;
+		}
+
+		if (node->end_of_segment)
+		{
+			rmax = rsum > rmax ? rsum : rmax;
+			gmax = gsum > gmax ? gsum : gmax;
+			bmax = bsum > bmax ? bsum : bmax; 			
+
+			rsum = gsum = bsum = 0;
+		}
+	}
+
+	*r = rmax;
+	*g = gmax;
+	*b = bmax;
+}
+
 int gamestr(const game *game, char *dst, size_t dst_len)
 {
 	const char *dst_end = dst + dst_len;

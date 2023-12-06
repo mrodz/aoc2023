@@ -21,12 +21,12 @@ int main(int argc, const char *argv[])
 
 	for (int i = 0; i < CAPACITY; i++)
 	{
-		if (game_is_valid(games + i, MAX_RED, MAX_GREEN, MAX_BLUE))
-		{
-			int id = games[i].id;
-			sum += id;
-		}
+		int r, g, b;
 
+		game_maxes(games + i, &r, &g, &b);
+
+		sum += r * g * b;
+		
 		game_cleanup(games + i);
 	}
 
