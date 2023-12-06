@@ -1,7 +1,11 @@
 {
 	"files.associations": {
 		"stdint.h": "c",
-		"game_reader.h": "c"
+		"game_reader.h": "c",
+		"errno.h": "c",
+		"stdint-gcc.h": "c",
+		"game.h": "c",
+		"stdlib.h": "c"
 	},
 	"C_Cpp.default.compilerPath": "C:\\MinGW\\bin\\gcc.exe"
 }

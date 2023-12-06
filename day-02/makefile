@@ -7,10 +7,10 @@ CFLAGS=-std=c99 -ggdb -Wall -I$(IDIR)
 ODIR=obj
 LDIR=lib
 
-_DEPS = game_reader.h
+_DEPS = game_reader.h game.h
 DEPS = $(patsubst %,$(IDIR)/%,$(_DEPS))
 
-_OBJ = game_reader.o main.o 
+_OBJ = game_reader.o game.o main.o 
 OBJ = $(patsubst %,$(ODIR)/%,$(_OBJ))
 
 $(OBJ): $(ODIR)/%.o: src/%.c $(DEPS)
