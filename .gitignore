@@ -4,3 +4,6 @@
 **/*.o
 **/bin
 **/obj
+**/zig-cache
+**/zig-out
+**/input
