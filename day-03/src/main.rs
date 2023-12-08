@@ -1,3 +1,5 @@
+use std::time::{Instant, Duration};
+
 fn consume_char_slice_for_num(slice: &mut [char]) -> Option<u32> {
     let mut result = 0;
     for (pow, char) in slice.iter().rev().enumerate() {
@@ -121,7 +123,18 @@ fn left_right(grid: &mut [Vec<char>], row: usize, col: usize) -> Vec<u32> {
     result
 }
 
-fn part_one(grid: &mut Vec<Vec<char>>) -> u32 {
+fn vec_from_str(input: &str) -> Vec<Vec<char>> {
+    let mut grid: Vec<Vec<char>> = Vec::new();
+
+    for line in input.lines() {
+        grid.push(line.chars().collect());
+    }
+
+    grid
+}
+
+fn part_one(grid: &mut Vec<Vec<char>>) -> (u32, Duration) {
+    let start = Instant::now();
     let mut sum = 0;
 
     for i in 0..grid.len() {
@@ -131,7 +144,7 @@ fn part_one(grid: &mut Vec<Vec<char>>) -> u32 {
             let c = grid[i][j];
 
             if !c.is_ascii_digit() && c != '.' && c != '\0' {
-                let mut top = { top_numbers(grid, i, j) };
+                let mut top = top_numbers(grid, i, j);
                 let mut bottom = bottom_numbers(grid, i, j);
                 let mut left_right = left_right(grid, i, j);
 
@@ -144,17 +157,40 @@ fn part_one(grid: &mut Vec<Vec<char>>) -> u32 {
             }
         }
     }
-    sum
+
+    (sum, Instant::now() - start)
 }
 
-fn vec_from_str(input: &str) -> Vec<Vec<char>> {
-    let mut grid: Vec<Vec<char>> = Vec::new();
+fn part_two(grid: &mut Vec<Vec<char>>) -> (u32, Duration) {
+    let start = Instant::now();
 
-    for line in input.lines() {
-        grid.push(line.chars().collect());
+    let mut sum = 0;
+
+    for i in 0..grid.len() {
+        let len = grid[i].len();
+
+        for j in 0..len {
+            let c = grid[i][j];
+
+            if c == '*' {
+                let mut top = top_numbers(grid, i, j);
+                let mut bottom = bottom_numbers(grid, i, j);
+                let mut left_right = left_right(grid, i, j);
+
+                top.append(&mut bottom);
+                top.append(&mut left_right);
+
+                let all = top;
+
+                if all.len() != 2 {
+                    continue;
+                }
+
+                sum += all[0] * all[1];
+            }
+        }
     }
-
-    grid
+    (sum, Instant::now() - start)
 }
 
 fn main() {
@@ -162,5 +198,12 @@ fn main() {
 
     let mut grid = vec_from_str(content);
 
-    println!("sum = {}", part_one(&mut grid));
+    let (p1, dur) = part_one(&mut grid.clone());
+
+    println!("sum = {p1} (took {} microseconds)", dur.as_micros());
+
+    let (p2, dur) = part_two(&mut grid);
+
+    println!("gear ratio sum = {p2} (took {} microseconds)", dur.as_micros());
+
 }
