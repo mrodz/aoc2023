@@ -1,93 +1,85 @@
 const std = @import("std");
+const parser = @import("parser.zig");
 
 pub const Scratcher = struct {
     id: u8,
-    winners: std.ArrayList(u8),
-    present: std.ArrayList(u8),
+    winners: std.AutoHashMap(u8, void),
+    present: []u8,
+    presentAllocator: std.mem.Allocator,
 
-    pub fn init(id: u8, winners: std.ArrayList(u8), present: std.ArrayList(u8)) Scratcher {
+    /// `winners` does not have to be owned, as it will be copied into a `Set` on the heap.
+    /// `ownedPresent` must be owned. Passing its allocator as `presentAllocator` allows a `Scratcher` instance
+    /// to deinitialize its owned resources in a self-contained manner.
+    pub fn init(id: u8, winners: []u8, ownedPresent: []u8, allocator: std.mem.Allocator, presentAllocator: std.mem.Allocator) !Scratcher {
+        var map = std.AutoHashMap(u8, void).init(allocator);
+
+        for (winners) |winner| try map.put(winner, void{});
+
         return .{
             .id = id,
-            .winners = winners.*,
-            .present = present.*,
+            .winners = map,
+            .present = ownedPresent,
+            .presentAllocator = presentAllocator,
         };
     }
 
-    pub fn deinit(self: Scratcher) void {
-        self.present.deinit();
+    pub fn deinit(self: *Scratcher) void {
         self.winners.deinit();
+        self.presentAllocator.free(self.present);
+        self.* = undefined;
+    }
+
+    pub fn intersection(self: *const Scratcher, resultBuffer: ?[]u32) error{OutOfBounds}!u32 {
+        var sum: u32 = 0;
+
+        var rIdx: usize = 0;
+
+        for (self.present) |present| {
+            if (self.winners.contains(present)) {
+                if (resultBuffer) |result| {
+                    if (rIdx >= result.len) return error.OutOfBounds;
+                    result[rIdx] = present;
+                    rIdx += 1;
+                }
+
+                sum += 1;
+            }
+        }
+
+        return sum;
     }
 };
 
-fn ParserState(comptime data_type: type) type {
-    return struct {
-        value: data_type,
-        next: []u8,
-    };
-}
+const Input = struct {
+    tickets: std.ArrayList(Scratcher),
+    parserBuffer: std.ArrayList(u8),
+    allocator: std.mem.Allocator,
+    isWinner: bool,
 
-fn parse_card(line: []u8) !ParserState(u8) {
-    const digitStart = 5;
-
-    if (!std.mem.eql(u8, line[0..digitStart], "Card ")) return error.NoCard;
-
-    var digitEnd: usize = 5;
-    for (line[5..]) |c| {
-        if (!std.ascii.isDigit(c)) break;
-        digitEnd += 1;
-    }
-
-    const id = try std.fmt.parseUnsigned(u8, line[digitStart..digitEnd], 10);
-
-    return .{ .value = id, .next = line[digitEnd + 2 ..] };
-}
-
-fn parse_advance(line: []u8) !?ParserState(enum { NUMBER, PIPE }) {
-    if (line.len == 0) return null;
-
-    var startOfInput: usize = 0;
-
-    for (line) |c| {
-        if (c != ' ') break;
-        startOfInput += 1;
-    }
-
-    const c = line[startOfInput];
-
-    if (c == '|') {
+    pub fn init(ticketsAllocator: std.mem.Allocator, bufferAllocator: std.mem.Allocator) Input {
+        const tickets = std.ArrayList(Scratcher).init(ticketsAllocator);
+        const parserBuffer = std.ArrayList(u8).init(bufferAllocator);
         return .{
-            .next = line[startOfInput + 2 ..],
-            .value = .PIPE,
+            .isWinner = false,
+            .tickets = tickets,
+            .parserBuffer = parserBuffer,
+            .allocator = ticketsAllocator,
         };
-    } else if (std.ascii.isDigit(c)) {
-        return .{
-            .next = line[startOfInput..],
-            .value = .NUMBER,
-        };
-    } else if (c == 12 or c == 13) {
-        return null;
-    } else {
-        return error.InvalidToken;
-    }
-}
-
-fn parse_number(line: []u8) !ParserState(u8) {
-    var endOfNumber: usize = 0;
-
-    for (line[0..]) |c| {
-        if (!std.ascii.isDigit(c)) break;
-        endOfNumber += 1;
     }
 
-    const entry = try std.fmt.parseUnsigned(u8, line[0..endOfNumber], 10);
+    pub fn deinit(self: *Input) void {
+        for (self.tickets.items) |*ticket| {
+            ticket.deinit();
+        }
+        self.tickets.deinit();
+        self.parserBuffer.deinit();
+        self.* = undefined;
+    }
+};
 
-    return .{
-        .next = line[endOfNumber..],
-        .value = entry,
-    };
-}
+pub fn buildInput(path: []const u8, allocator: std.mem.Allocator) !Input {
+    var input = Input.init(allocator, allocator);
 
-pub fn partOne(path: []const u8) !u32 {
     var file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
 
@@ -96,50 +88,54 @@ pub fn partOne(path: []const u8) !u32 {
 
     var buffer: [128]u8 = undefined;
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer {
-        const status = gpa.deinit();
-        if (status == .leak) @panic("memory leak");
-    }
-    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
-    defer arena.deinit();
-
-    var winners = std.ArrayList(u8).init(arena.allocator());
-    defer winners.deinit();
-
-    var present = std.ArrayList(u8).init(arena.allocator());
-    defer present.deinit();
-
-    var inWinners = false;
-
     while (try stream.readUntilDelimiterOrEof(&buffer, '\n')) |line| {
-        const id = try parse_card(line);
+        const id = try parser.parseCard(line);
 
         var nextStr = id.next;
 
+        var ownedWinners: ?[]u8 = null;
+
+        defer if (ownedWinners) |allocated| allocator.free(allocated);
+
         while (true) {
-            const space = try parse_advance(nextStr) orelse break;
+            const space = try parser.parseAdvance(nextStr) orelse break;
 
             if (space.value == .PIPE) {
-                inWinners = false;
+                ownedWinners = try input.parserBuffer.toOwnedSlice();
             }
 
-            const num = try parse_number(space.next);
+            const num = try parser.parseNumber(space.next);
 
-            if (inWinners) {
-                try winners.append(num.value);
-            } else {
-                try present.append(num.value);
-            }
+            try input.parserBuffer.append(num.value);
 
             nextStr = num.next;
         }
 
-        std.debug.print("winners = {}\n, present = {}", .{ winners, present });
+        const ownedPresent = try input.parserBuffer.toOwnedSlice();
 
-        winners.clearAndFree();
-        present.clearAndFree();
+        errdefer allocator.free(ownedPresent);
+
+        const scratcher = try Scratcher.init(id.value, ownedWinners orelse return error.NoPipe, ownedPresent, allocator, allocator);
+
+        try input.tickets.append(scratcher);
     }
 
-    return 0;
+    return input;
+}
+
+pub fn partOne(input: *Input, allocator: std.mem.Allocator) !u32 {
+    var sum: u32 = 0;
+
+    for (input.tickets.items) |ticket| {
+        const buffer = try allocator.alloc(u32, ticket.present.len);
+        defer allocator.free(buffer);
+
+        const numberOfIntersections: u32 = try ticket.intersection(buffer);
+
+        if (numberOfIntersections != 0) sum += try std.math.powi(u32, 2, numberOfIntersections - 1);
+
+        std.log.debug("{any}", .{buffer[0..numberOfIntersections]});
+    }
+
+    return sum;
 }
