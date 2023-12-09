@@ -8,7 +8,9 @@ pub fn main() !void {
     var input = try root.buildInput(".\\input\\input.txt", gpa.allocator());
     defer input.deinit();
 
-    const solution_p1 = try root.partOne(&input, gpa.allocator());
+    // const solution_p1 = try root.partOne(&input, gpa.allocator());
+    // std.log.info("part one = {}", .{solution_p1});
 
-    std.log.info("part one = {}", .{solution_p1});
+    const solution_p2 = try root.partTwo(&input, gpa.allocator());
+    std.log.info("part two = {}", .{solution_p2});
 }

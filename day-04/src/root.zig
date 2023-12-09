@@ -139,3 +139,35 @@ pub fn partOne(input: *Input, allocator: std.mem.Allocator) !u32 {
 
     return sum;
 }
+
+fn partTwoRecursive(original: []Scratcher, mod: []Scratcher, allocator: *std.mem.Allocator, cache: *std.AutoHashMap(u8, u32), depth: u32) !u32 {
+    var sum: u32 = 0;
+
+    for (mod) |ticket| {
+        const entry = try cache.getOrPut(ticket.id);
+
+        if (!entry.found_existing) {
+            entry.value_ptr.* = try ticket.intersection(null);
+        }
+
+        const numberOfIntersections: u32 = entry.value_ptr.*;
+
+        const min = ticket.id;
+        const max = @min(min + numberOfIntersections, original.len);
+
+        if (numberOfIntersections != 0) {
+            sum += try partTwoRecursive(original, original[min..max], allocator, cache, depth + 1);
+        }
+
+        sum += 1;
+    }
+
+    return sum;
+}
+
+pub fn partTwo(input: *Input, allocator: std.mem.Allocator) !u32 {
+    var cache = std.AutoHashMap(u8, u32).init(allocator);
+    var tmp = allocator;
+    defer cache.deinit();
+    return partTwoRecursive(input.tickets.items, input.tickets.items, &tmp, &cache, 0);
+}
