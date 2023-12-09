@@ -9,8 +9,6 @@ pub fn ParserState(comptime data_type: type) type {
     };
 }
 
-
-
 pub fn parseCard(line: []u8) error{ NoCard, Overflow, InvalidCharacter }!ParserState(u8) {
     const cardEnd = 4;
 

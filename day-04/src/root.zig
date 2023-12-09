@@ -124,17 +124,13 @@ pub fn buildInput(path: []const u8, allocator: std.mem.Allocator) !Input {
 }
 
 pub fn partOne(input: *Input, allocator: std.mem.Allocator) !u32 {
+    _ = allocator;
     var sum: u32 = 0;
 
     for (input.tickets.items) |ticket| {
-        const buffer = try allocator.alloc(u32, ticket.present.len);
-        defer allocator.free(buffer);
-
-        const numberOfIntersections: u32 = try ticket.intersection(buffer);
+        const numberOfIntersections: u32 = try ticket.intersection(null);
 
         if (numberOfIntersections != 0) sum += try std.math.powi(u32, 2, numberOfIntersections - 1);
-
-        std.log.debug("{any}", .{buffer[0..numberOfIntersections]});
     }
 
     return sum;
@@ -144,22 +140,23 @@ fn partTwoRecursive(original: []Scratcher, mod: []Scratcher, allocator: *std.mem
     var sum: u32 = 0;
 
     for (mod) |ticket| {
-        const entry = try cache.getOrPut(ticket.id);
+        sum += 1;
 
-        if (!entry.found_existing) {
-            entry.value_ptr.* = try ticket.intersection(null);
+        if (cache.get(ticket.id)) |some| {
+            sum += some;
+            continue;
         }
 
-        const numberOfIntersections: u32 = entry.value_ptr.*;
+        const numberOfIntersections: u32 = try ticket.intersection(null);
 
         const min = ticket.id;
         const max = @min(min + numberOfIntersections, original.len);
 
         if (numberOfIntersections != 0) {
-            sum += try partTwoRecursive(original, original[min..max], allocator, cache, depth + 1);
+            const children = try partTwoRecursive(original, original[min..max], allocator, cache, depth + 1);
+            try cache.put(ticket.id, children);
+            sum += children;
         }
-
-        sum += 1;
     }
 
     return sum;
