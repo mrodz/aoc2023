@@ -7,7 +7,7 @@ pub fn StateMachine(comptime T: type) type {
     };
 }
 
-const TokenError = error{ InputTooShort, UnexpectedToken, Overflow, InvalidCharacter, OutOfMemory };
+pub const TokenError = (error{ InputTooShort, UnexpectedToken, OutOfMemory } || std.fmt.ParseIntError);
 
 fn parseConsumeGreedyWhitespace(in: []u8) StateMachine(bool) {
     for (in, 0..) |c, i| {
@@ -38,7 +38,15 @@ fn parseConsumeNumber(in: []u8) TokenError!StateMachine(u64) {
         if (!std.ascii.isDigit(c)) break;
     } else endIndex += 1;
 
-    const val = try std.fmt.parseInt(u64, in[0..endIndex], 10);
+    if (endIndex == 0) {
+        std.log.err("Could not parse int from \"{s}\": not a number", .{in[0..1]});
+        return TokenError.InvalidCharacter;
+    }
+
+    const val = std.fmt.parseInt(u64, in[0..endIndex], 10) catch |err| {
+        std.log.err("Could not parse int from \"{s}\": {}", .{ in[0..endIndex], err });
+        return err;
+    };
 
     return StateMachine(u64){ .data = val, .next = in[endIndex..] };
 }

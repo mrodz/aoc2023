@@ -1,89 +1,9 @@
 const std = @import("std");
 const parser = @import("parser.zig");
-
-pub const Almanac = struct {
-    allocator: std.mem.Allocator,
-    root: ?AlmanacSection,
-    last: *?AlmanacSection,
-
-    pub fn init(allocator: std.mem.Allocator) Almanac {
-        return Almanac{
-            .root = undefined,
-            .last = undefined,
-            .allocator = allocator,
-        };
-    }
-
-    pub fn deinit(self: *Almanac) void {
-        if (self.root) |root| @constCast(&root).deinit();
-        self.* = undefined;
-    }
-
-    pub fn addSection(self: *Almanac, section: AlmanacSection) !void {
-        if (self.root == undefined) {
-            self.root = section;
-            self.last = &self.root;
-        } else {
-            const ptr: *AlmanacSection = (self.last orelse unreachable).next;
-            ptr.* = section;
-            self.last = ptr;
-        }
-    }
-};
-
-const AlmanacSection = struct {
-    mappings: std.ArrayList(AlmanacRange),
-    allocator: std.mem.Allocator,
-    next: ?*AlmanacSection,
-
-    fn init(allocator: std.mem.Allocator) AlmanacSection {
-        const mappings = std.ArrayList(AlmanacRange).init(allocator);
-        return AlmanacSection{ mappings, allocator };
-    }
-
-    fn deinit(self: *AlmanacSection) void {
-        self.mappings.deinit();
-        if (self.next) |next| next.deinit();
-        self.* = undefined;
-    }
-
-    fn addRange(self: *AlmanacSection, src_start: i32, dst_start: i32, len: usize) AlmanacRange {
-        self.mappings.append(AlmanacRange.init(src_start, dst_start, len));
-    }
-
-    fn pursueNumber(self: *AlmanacSection, number: i32) !i32 {
-        for (self.mappings) |range| {
-            if (range.getOutput(number)) |output| {
-                return output;
-            }
-        }
-        return error.DoesNotExist;
-    }
-};
-
-const AlmanacRange = struct {
-    src_start: i32,
-    dst_start: i32,
-    len: usize,
-
-    fn init(src_start: i32, dst_start: i32, len: usize) AlmanacRange {
-        return AlmanacRange{
-            src_start,
-            dst_start,
-            len,
-        };
-    }
-
-    fn getOutput(self: AlmanacRange, number: i32) ?i32 {
-        if (number >= self.src_start and number <= self.src_start + self.len) {
-            const offset = number - self.src_start;
-            return self.dst_start + offset;
-        }
-    }
-};
+const Almanac = @import("almanac.zig");
 
 const Input = struct {
-    seeds: std.ArrayList(i32),
+    seeds: std.ArrayList(u64),
     almanac: Almanac,
     allocator: std.mem.Allocator,
 
@@ -91,7 +11,7 @@ const Input = struct {
         return Input{
             .allocator = allocator,
             .almanac = Almanac.init(allocator),
-            .seeds = std.ArrayList(i32).init(allocator),
+            .seeds = std.ArrayList(u64).init(allocator),
         };
     }
 
@@ -102,9 +22,20 @@ const Input = struct {
     }
 };
 
-pub fn buildInput(path: []const u8, allocator: std.mem.Allocator) !?Input {
-    var input = Input.init(allocator); // // caller-defer
-    defer input.deinit();
+pub fn partOne(input: *const Input) std.mem.Allocator.Error!u64 {
+    var output: []u64 = try input.allocator.alloc(u64, input.seeds.items.len);
+    defer input.allocator.free(output);
+
+    for (input.seeds.items, 0..) |seed, i| {
+        if (input.almanac.getOutput(seed)) |out| output[i] = out;
+    }
+
+    return std.mem.min(u64, output);
+}
+
+pub fn buildInput(path: []const u8, allocator: std.mem.Allocator) !Input {
+    var input = Input.init(allocator); // caller-defer
+    errdefer input.deinit();
 
     var file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
@@ -115,14 +46,57 @@ pub fn buildInput(path: []const u8, allocator: std.mem.Allocator) !?Input {
     var buffer: [512]u8 = undefined;
 
     if (try stream.readUntilDelimiterOrEof(&buffer, '\n')) |seedsLine| {
-        var seeds = std.ArrayList(i32).init(allocator); // // caller-defer
-        defer seeds.deinit();
-        _ = try parser.parseSeedsGrammar(seedsLine, &seeds);
+        var seeds = std.ArrayList(u64).init(allocator); // caller-defer
 
-        for (seeds.items) |seed| {
-            std.log.debug("{}, ", .{seed});
+        // resource managmenet of `seeds` is moved to `input`, but in the case
+        // that parsing fails, must explicitly drop.
+
+        _ = parser.parseSeedsGrammar(seedsLine, &seeds) catch |err| {
+            std.log.err("Could not parse seeds: got \"{s}\" ({})", .{ seedsLine, err });
+            seeds.deinit();
+            return err;
+        };
+
+        input.seeds = seeds;
+    }
+
+    var rangeFields = try std.ArrayList(u64).initCapacity(allocator, 3);
+    defer rangeFields.deinit();
+
+    if (try stream.readUntilDelimiterOrEof(&buffer, '\n')) |empty_line| {
+        if (std.mem.trim(u8, empty_line, &std.ascii.whitespace).len != 0) {
+            std.log.err("Expected empty line, got \"{s}\"", .{empty_line});
+            return error.UnexpectedToken;
         }
     }
 
-    return undefined;
+    outer: while (true) {
+        @memset(&buffer, 0);
+        if (try stream.readUntilDelimiterOrEof(&buffer, '\n')) |empty_line| {
+            _ = empty_line;
+        }
+
+        var section = Almanac.AlmanacSection.init(allocator); // caller-defer
+        errdefer section.deinit();
+
+        while (true) {
+            @memset(&buffer, 0);
+            if (try stream.readUntilDelimiterOrEof(&buffer, '\n')) |seedsLine| {
+                if (std.mem.trim(u8, seedsLine, &std.ascii.whitespace).len == 0) break;
+                _ = parser.parseConsumeIntRow(seedsLine, &rangeFields) catch |err| {
+                    std.log.err("Could not parse number row: got \"{s}\" ({})", .{ seedsLine, err });
+                    return err;
+                };
+            } else {
+                try input.almanac.addSection(section);
+                break :outer;
+            }
+            try section.addRange(rangeFields.items[0], rangeFields.items[1], rangeFields.items[2]);
+            rangeFields.clearAndFree();
+        }
+
+        try input.almanac.addSection(section);
+    }
+
+    return input;
 }
